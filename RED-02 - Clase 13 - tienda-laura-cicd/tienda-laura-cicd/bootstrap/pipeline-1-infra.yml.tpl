@@ -1,0 +1,126 @@
+# =====================================================================
+#  PARTE 1 · CLASE 13 · El pipeline de la INFRAESTRUCTURA (GitHub Actions)
+#  Lo escribió bootstrap con TUS dos roles.
+#
+#  En cada PUSH A MAIN (aplicar):
+#    1 · infra    → terraform apply: crea o ajusta TODA la infraestructura
+#                   y pone un aviso 🚧 en la tienda (la app llega en la clase 14)
+#  En cada PULL REQUEST (revisar antes de unir, sin cambiar nada):
+#    revisar      → terraform fmt, validate y plan: QUÉ cambiaría
+# =====================================================================
+name: Pipeline de la tienda de Laura
+
+on:
+  push:
+    branches: [main]   # cada push a main aplica
+%{ if carpeta != "" ~}
+    paths: ["${carpeta}/**", ".github/workflows/pipeline.yml"]   # solo cuando cambia el lab
+%{ endif ~}
+  pull_request:
+    branches: [main]   # cada pull request hacia main se revisa con un plan
+%{ if carpeta != "" ~}
+    paths: ["${carpeta}/**", ".github/workflows/pipeline.yml"]
+%{ endif ~}
+  workflow_dispatch:   # y también un botón "Run workflow" en la pestaña Actions
+
+permissions:
+  id-token: write   # permiso para pedirle a GitHub el pase OIDC
+  contents: read    # permiso para leer el código del repositorio
+
+concurrency:
+  group: tienda-de-laura   # un solo pipeline a la vez: el que llega después espera su turno
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: "${raiz}"   # la carpeta del lab dentro del repositorio
+
+jobs:
+  # ---------------------------------------------------------------- PUSH A MAIN
+  infra:
+    name: 1 · Infra (terraform apply)
+    if: github.event_name != 'pull_request'   # solo en main
+    runs-on: ubuntu-latest   # una máquina nueva de GitHub, solo para este trabajo
+    defaults:
+      run:
+        working-directory: "${raiz}/terraform"
+    steps:
+      - name: Bajar el código del repositorio
+        uses: actions/checkout@v4
+
+      - name: Entrar a AWS con OIDC (sin llaves)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${rol_apply}
+          aws-region: us-east-1
+
+      - name: ¿Quién soy en AWS?
+        run: aws sts get-caller-identity --query Arn --output text
+
+      - name: Instalar Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.8"
+          terraform_wrapper: false
+
+      - name: terraform init (el estado está en S3)
+        run: terraform init -input=false -backend-config=backend.hcl
+
+      - name: terraform apply (toda la infraestructura)
+        run: terraform apply -input=false -auto-approve
+
+      - name: Poner el aviso 🚧 (la tienda llega en la clase 14)
+        run: |
+          echo '<!doctype html><html lang="es"><meta charset="utf-8"><title>Tienda de Laura · en construcción</title><body style="font-family:sans-serif;text-align:center;padding:12vh 16px"><h1>🧱 La infraestructura ya está lista</h1><p>La creó GitHub Actions con Terraform. La tienda llega en la clase 14 🚧</p></body></html>' > obra.html
+          aws s3 cp obra.html "s3://$(terraform output -raw bucket)/index.html" --content-type "text/html; charset=utf-8"
+
+      - name: Listo
+        run: |
+          echo "Infraestructura lista → $(terraform output -raw tu_tienda)"
+          echo "### 🧱 Infraestructura lista: $(terraform output -raw tu_tienda)" >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------- PULL REQUEST
+  revisar:
+    name: Revisar (terraform plan)
+    if: github.event_name == 'pull_request'   # solo en los pull request: no cambia nada
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: "${raiz}/terraform"
+    steps:
+      - name: Bajar el código del repositorio
+        uses: actions/checkout@v4
+
+      - name: Entrar a AWS con OIDC (rol que solo puede mirar)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${rol_plan}
+          aws-region: us-east-1
+
+      - name: Instalar Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.8"
+          terraform_wrapper: false
+
+      - name: terraform init, fmt y validate (¿está bien escrito?)
+        run: |
+          terraform init -input=false -backend-config=backend.hcl
+          terraform fmt -check -diff
+          terraform validate
+
+      - name: terraform plan (¿qué cambiaría?)
+        run: |
+          terraform plan -input=false -no-color | tee plan.txt
+          {
+            echo "### 🔍 Plan de Terraform"
+            echo '```'
+            grep -E '^(Plan:|No changes)' plan.txt || true
+            echo '```'
+            echo '<details><summary>Ver el plan completo</summary>'
+            echo ''
+            echo '```'
+            sed -n '/Terraform will perform/,$p' plan.txt
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"

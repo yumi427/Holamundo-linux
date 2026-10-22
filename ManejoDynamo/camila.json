@@ -1,0 +1,6 @@
+{
+  "cliente":  { "S": "camila" },
+  "fecha":    { "S": "2026-10-09 10:00" },
+  "producto": { "S": "camiseta" },
+  "talla":    { "S": "L" }
+}

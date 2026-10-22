@@ -1,0 +1,15 @@
+# Lo que NUNCA se sube a GitHub
+
+# los proveedores que descarga terraform init (pesan mucho)
+.terraform/
+# el estado de Terraform: describe toda tu infraestructura
+*.tfstate
+*.tfstate.*
+# los zip de la Lambda (el de espera lo arma Terraform; el back.zip, el pipeline)
+back.zip
+espera.zip
+__pycache__/
+# llaves de EC2 y credenciales de AWS
+*.pem
+*.ppk
+.aws/

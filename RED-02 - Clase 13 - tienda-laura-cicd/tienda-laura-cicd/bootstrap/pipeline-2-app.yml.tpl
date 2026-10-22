@@ -1,0 +1,227 @@
+# =====================================================================
+#  PARTE 2 · CLASE 14 · El pipeline COMPLETO: infraestructura + aplicación
+#  Lo escribió bootstrap con TUS dos roles. En la clase 14 lo copias encima de
+#  .github/workflows/pipeline.yml (PASO 7 del README).
+#
+#  En cada PUSH A MAIN (publicar), en este orden:
+#    1 · infra      → terraform apply: crea o ajusta TODA la infraestructura
+#    2 · back       → probar · empaquetar (zip) · subir a Lambda      ┐ al mismo
+#    2 · front      → probar · empaquetar (versión) · subir a S3      ┘ tiempo
+#    3 · finalizar  → prueba la tienda EN VIVO y te deja el link
+#  Si una prueba falla, esa pieza NO se publica y finalizar no corre.
+#
+#  En cada PULL REQUEST (revisar antes de unir, sin publicar nada):
+#    revisar        → las pruebas del back y del front + terraform plan
+# =====================================================================
+name: Pipeline de la tienda de Laura
+
+on:
+  push:
+    branches: [main]   # cada push a main publica
+%{ if carpeta != "" ~}
+    paths: ["${carpeta}/**", ".github/workflows/pipeline.yml"]   # solo cuando cambia el lab
+%{ endif ~}
+  pull_request:
+    branches: [main]   # cada pull request hacia main se revisa
+%{ if carpeta != "" ~}
+    paths: ["${carpeta}/**", ".github/workflows/pipeline.yml"]
+%{ endif ~}
+  workflow_dispatch:   # y también un botón "Run workflow" en la pestaña Actions
+
+permissions:
+  id-token: write   # permiso para pedirle a GitHub el pase OIDC
+  contents: read    # permiso para leer el código del repositorio
+
+concurrency:
+  group: tienda-de-laura   # un solo pipeline a la vez: el que llega después espera su turno
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: "${raiz}"   # la carpeta del lab dentro del repositorio
+
+jobs:
+  # ---------------------------------------------------------------- PUSH A MAIN
+  infra:
+    name: 1 · Infra (terraform apply)
+    if: github.event_name != 'pull_request'   # solo en main
+    runs-on: ubuntu-latest   # una máquina nueva de GitHub, solo para este trabajo
+    defaults:
+      run:
+        working-directory: "${raiz}/terraform"
+    outputs:   # lo que los siguientes trabajos necesitan saber
+      bucket: $${{ steps.salidas.outputs.bucket }}
+      funcion: $${{ steps.salidas.outputs.funcion }}
+      tienda: $${{ steps.salidas.outputs.tienda }}
+      api: $${{ steps.salidas.outputs.api }}
+    steps:
+      - name: Bajar el código del repositorio
+        uses: actions/checkout@v4
+
+      - name: Entrar a AWS con OIDC (sin llaves)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${rol_apply}
+          aws-region: us-east-1
+
+      - name: ¿Quién soy en AWS?
+        run: aws sts get-caller-identity --query Arn --output text
+
+      - name: Instalar Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.8"
+          terraform_wrapper: false
+
+      - name: terraform init (el estado está en S3)
+        run: terraform init -input=false -backend-config=backend.hcl
+
+      - name: terraform apply (toda la infraestructura)
+        run: terraform apply -input=false -auto-approve
+
+      - name: Pasarle las direcciones a los siguientes trabajos
+        id: salidas
+        run: |
+          echo "bucket=$(terraform output -raw bucket)" >> "$GITHUB_OUTPUT"
+          echo "funcion=$(terraform output -raw funcion)" >> "$GITHUB_OUTPUT"
+          echo "tienda=$(terraform output -raw tu_tienda)" >> "$GITHUB_OUTPUT"
+          echo "api=$(terraform output -raw tu_api)" >> "$GITHUB_OUTPUT"
+
+  back:
+    name: 2 · Back (probar, empaquetar, publicar)
+    needs: infra   # espera a que exista la infraestructura
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bajar el código del repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar boto3
+        run: pip install boto3
+
+      - name: Probar el back (back/test_app.py)
+        run: python -m unittest discover -s back -v
+
+      - name: Empaquetar el back (back.zip)
+        run: cd back && zip -X ../back.zip app.py
+
+      - name: Entrar a AWS con OIDC (sin llaves)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${rol_apply}
+          aws-region: us-east-1
+
+      - name: Subir el back a Lambda
+        run: |
+          aws lambda update-function-code --function-name "$${{ needs.infra.outputs.funcion }}" --zip-file fileb://back.zip --query LastModified --output text
+          aws lambda wait function-updated --function-name "$${{ needs.infra.outputs.funcion }}"
+
+  front:
+    name: 2 · Front (probar, empaquetar, publicar)
+    needs: infra   # espera a que exista la infraestructura
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bajar el código del repositorio
+        uses: actions/checkout@v4
+
+      - name: Probar el front (¿el JavaScript está bien escrito? ¿la página carga sus archivos?)
+        run: |
+          node --check front/app.js
+          grep -q 'config.js' front/index.html
+          grep -q 'app.js' front/index.html
+          echo "front OK"
+
+      - name: Empaquetar el front (version.js con el commit que se publica)
+        run: |
+          echo "window.VERSION = { commit: \"$(echo $GITHUB_SHA | cut -c1-7)\", autor: \"$GITHUB_ACTOR\", fecha: \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\" };" > front/version.js
+          cat front/version.js
+
+      - name: Entrar a AWS con OIDC (sin llaves)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${rol_apply}
+          aws-region: us-east-1
+
+      - name: Subir el front a S3
+        run: aws s3 sync front "s3://$${{ needs.infra.outputs.bucket }}" --delete --exclude config.js
+
+  finalizar:
+    name: 3 · Finalizar (probar en vivo)
+    needs: [infra, back, front]   # solo si las tres piezas salieron bien
+    runs-on: ubuntu-latest
+    steps:
+      - name: ¿La tienda abre?
+        run: curl -fsS --retry 5 --retry-delay 10 --retry-all-errors "$${{ needs.infra.outputs.tienda }}" | grep -q '<title>'
+
+      - name: ¿El back responde?
+        run: curl -fsS --retry 5 --retry-delay 10 --retry-all-errors "$${{ needs.infra.outputs.api }}" > /dev/null
+
+      - name: Listo
+        run: |
+          echo "Tienda publicada → $${{ needs.infra.outputs.tienda }}"
+          echo "### 🛍️ Tienda publicada: $${{ needs.infra.outputs.tienda }}" >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------- PULL REQUEST
+  revisar:
+    name: Revisar (pruebas + terraform plan)
+    if: github.event_name == 'pull_request'   # solo en los pull request: no publica nada
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bajar el código del repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Probar el back
+        run: |
+          pip install boto3
+          python -m unittest discover -s back -v
+
+      - name: Probar el front
+        run: |
+          node --check front/app.js
+          grep -q 'config.js' front/index.html
+          grep -q 'app.js' front/index.html
+
+      - name: Entrar a AWS con OIDC (rol que solo puede mirar)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${rol_plan}
+          aws-region: us-east-1
+
+      - name: Instalar Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.8"
+          terraform_wrapper: false
+
+      - name: terraform init, fmt y validate (¿está bien escrito?)
+        working-directory: "${raiz}/terraform"
+        run: |
+          terraform init -input=false -backend-config=backend.hcl
+          terraform fmt -check -diff
+          terraform validate
+
+      - name: terraform plan (¿qué cambiaría?)
+        working-directory: "${raiz}/terraform"
+        run: |
+          terraform plan -input=false -no-color | tee plan.txt
+          {
+            echo "### 🔍 Plan de Terraform"
+            echo '```'
+            grep -E '^(Plan:|No changes)' plan.txt || true
+            echo '```'
+            echo '<details><summary>Ver el plan completo</summary>'
+            echo ''
+            echo '```'
+            sed -n '/Terraform will perform/,$p' plan.txt
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"

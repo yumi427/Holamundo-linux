@@ -1,0 +1,3 @@
+$W = "https://d25cxrk86ud31h.cloudfront.net"
+curl.exe -s -o NUL -w "%{http_code}`n" "$W/?buscar=camiseta"
+1..150 | ForEach-Object { curl.exe -s -o NUL -w "%{http_code} " "$W/" }
