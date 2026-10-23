@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest   # una máquina nueva de GitHub, solo para este trabajo
     defaults:
       run:
-        working-directory: "./terraform"
+        working-directory: "RED-02/tienda-laura-cicd/terraform"
     steps:
       - name: Bajar el código del repositorio
         uses: actions/checkout@v4
@@ -80,7 +80,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: "./terraform"
+        working-directory: "RED-02/tienda-laura-cicd/terraform"
     steps:
       - name: Bajar el código del repositorio
         uses: actions/checkout@v4

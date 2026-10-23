@@ -120,11 +120,18 @@ data "aws_iam_openid_connect_provider" "github" {
 locals {
   proveedor_arn = var.crear_proveedor ? aws_iam_openid_connect_provider.github[0].arn : data.aws_iam_openid_connect_provider.github[0].arn
 
+  # GitHub firma el pase con un "sub" que dice QUIÉN pide entrar. Hay dos formatos:
+  #   viejo: repo:usuario/repo:ref:refs/heads/main
+  #   nuevo: repo:usuario@123/repo@456:ref:refs/heads/main  (con los números fijos de GitHub)
+  # Se aceptan los dos, pero SOLO para tu usuario y tu repositorio (un nombre de GitHub no lleva @ ni /).
+  dueno = split("/", var.repo_github)[0]
+  repo  = split("/", var.repo_github)[1]
+
   # la política de confianza: SOLO tu repositorio y SOLO el evento que digas
   confianza = {
-    for rol, sub in {
-      plan  = "repo:${var.repo_github}:pull_request"        # un pull request
-      apply = "repo:${var.repo_github}:ref:refs/heads/main" # un push a main
+    for rol, evento in {
+      plan  = "pull_request"        # un pull request
+      apply = "ref:refs/heads/main" # un push a main
       } : rol => jsonencode({
         Version = "2012-10-17"
         Statement = [{
@@ -133,7 +140,10 @@ locals {
           Action    = "sts:AssumeRoleWithWebIdentity"
           Condition = {
             StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
-            StringLike   = { "token.actions.githubusercontent.com:sub" = sub }
+            StringLike = { "token.actions.githubusercontent.com:sub" = [
+              "repo:${var.repo_github}:${evento}",
+              "repo:${local.dueno}@*/${local.repo}@*:${evento}",
+            ] }
           }
         }]
     })

@@ -11,7 +11,7 @@
 #    back  → zip a la Lambda       front → archivos al bucket S3
 #  El estado vive en S3 (backend "s3"), no en ningún PC.
 #  Desde tu PC solo para mirar o, al final, para destruir:
-#    terraform init -backend-config=backend.hcl
+#    terraform init -backend-config="backend.hcl"   (con comillas: PowerShell parte el punto)
 # =====================================================================
 
 terraform {

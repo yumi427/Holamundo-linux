@@ -89,16 +89,26 @@ Fíjate: **la infraestructura todavía no existe**. Esa la va a crear el pipelin
 
 > **¿Usas un repositorio que ya tienes?** (el lab queda en una subcarpeta, no en la raíz)
 > GitHub solo corre los pipelines de `.github/workflows/` en la **raíz** del repositorio.
-> Dile a bootstrap dónde está el lab, con la ruta desde la raíz de tu repo:
+> Dile a bootstrap dónde está el lab. Desde la carpeta del lab (la que tiene `bootstrap`, `terraform`, `front`…):
 >
 > ```powershell
-> terraform apply -var="carpeta=RED-02/tienda-laura-cicd"
+> $c = git rev-parse --show-prefix
+> cd bootstrap
+> terraform init
+> terraform apply -var="repo_github=TU-USUARIO/TU-REPO" -var="carpeta=$c"
 > ```
 >
-> Así el `pipeline.yml` queda en la raíz de tu repo, corre dentro de tu carpeta y solo se dispara
-> cuando cambia algo del lab. En `repo_github` escribe ese repositorio (ejemplo `tu-usuario/mi-repo`).
-> En el PASO 3 no hagas `git init` ni `git remote add`: tu repo ya existe. Desde la carpeta del lab basta:
-> `git add .` · `git add ../.github` (o la ruta hasta la raíz) · `git commit` · `git push`.
+> `git rev-parse --show-prefix` da la ruta del lab dentro de tu repo (con espacios y todo).
+> Así el `pipeline.yml` queda en la **raíz** de tu repo, corre dentro de tu carpeta y solo se dispara cuando cambia algo del lab.
+> En el PASO 3 **no** hagas `git init` ni `git remote add`: tu repo ya existe. Desde la carpeta del lab:
+>
+> ```powershell
+> git add . ":/.github"
+> git commit -m "lab tienda de Laura con pipeline"
+> git push
+> ```
+>
+> (`":/.github"` agrega la carpeta `.github` de la raíz del repo.)
 
 ## PASO 3 · El primer push: el pipeline crea la infraestructura
 
@@ -136,13 +146,13 @@ Ahora mira el mismo estado **desde tu PC**:
 
 ```powershell
 cd terraform
-terraform init -backend-config=backend.hcl
+terraform init -backend-config="backend.hcl"
 terraform state list
 terraform plan
 cd ..
 ```
 
-`state list` muestra los 13 recursos que creó el pipeline y `plan` dice **No changes**: tu PC y el pipeline ven **el mismo estado**.
+`state list` muestra 15 líneas: los **13 recursos** que creó el pipeline y 2 `data.` (cosas que Terraform solo lee). `plan` dice **No changes**: tu PC y el pipeline ven **el mismo estado**.
 
 ## PASO 5 · Un cambio de infraestructura por pull request
 
@@ -177,18 +187,28 @@ git pull
 
 ## PASO 6 · Reto: el candado en acción
 
-En **Actions** → **Pipeline de la tienda de Laura** → **Run workflow** y, **mientras corre 1 · Infra**:
-
-- En S3, recarga `tienda/`: aparece **`terraform.tfstate.tflock`**, el candado. Cuando el apply termina, desaparece.
-- En tu PC:
+Ahora **tú** tomas el candado desde tu PC y el pipeline choca contra él. En la carpeta principal:
 
 ```powershell
 cd terraform
-terraform plan
+terraform console
 ```
 
-Terraform responde **Error acquiring the state lock** con el `Who` y el `Created` del pipeline: el candado evita que dos personas (o una persona y el pipeline) cambien la infraestructura al mismo tiempo.
-Espera a que el pipeline termine y vuelve a correrlo: ahora sí funciona.
+`terraform console` abre una consola que solo **lee** la infraestructura (no cambia nada), pero mientras está abierta **tiene el candado**.
+Déjala abierta y:
+
+1. En S3 → `tienda-estado-…` → `tienda/`: aparece **`terraform.tfstate.tflock`**, el candado.
+2. En GitHub → **Actions** → **Pipeline de la tienda de Laura** → **Run workflow** → **Run workflow**.
+3. **1 · Infra** falla ❌ en *terraform apply* con **Error acquiring the state lock**, y en `Who:` sale **tu PC**.
+4. En la consola escribe `exit` (y Enter): el candado se suelta y `terraform.tfstate.tflock` desaparece.
+5. En la ejecución fallida → **Re-run jobs** → **Re-run all jobs**: ahora sí ✅.
+
+```powershell
+exit
+cd ..
+```
+
+El candado evita que dos personas (o una persona y el pipeline) cambien la infraestructura al mismo tiempo: el segundo espera su turno.
 
 ## Al terminar la parte 1: NO destruyas
 
@@ -208,8 +228,14 @@ git commit -m "pipeline completo: infra y aplicacion"
 git push
 ```
 
-> Si el lab está en una subcarpeta de otro repo, el destino es el `.github\workflows\pipeline.yml` de la **raíz**
-> de ese repo (ejemplo: `Copy-Item parte2\pipeline.yml ..\.github\workflows\pipeline.yml`).
+> Si el lab está en una subcarpeta de otro repo, el destino es el `pipeline.yml` de la **raíz** de ese repo:
+>
+> ```powershell
+> Copy-Item parte2\pipeline.yml (Join-Path (git rev-parse --show-toplevel) ".github\workflows\pipeline.yml")
+> git add . ":/.github"
+> git commit -m "pipeline completo: infra y aplicacion"
+> git push
+> ```
 
 En **Actions** ahora el pipeline tiene cuatro trabajos, en este orden:
 
@@ -263,8 +289,10 @@ Repositorio → **Settings** → **Rules** → **Rulesets** → **New ruleset** 
 Prueba: cambia algo del front en main y haz `git push`. GitHub lo **rechaza** (`GH013: Repository rule violations`):
 desde ahora todo cambio pasa por un pull request con pruebas y plan en verde.
 
-> Si GitHub te avisa que el ruleset *won't be enforced* (no se aplicará) en este repositorio privado, es porque el plan gratis no aplica reglas en repos privados.
-> La regla queda escrita, pero no bloquea: en las empresas (GitHub Team o Enterprise) sí.
+> **Repositorio privado con cuenta gratis:** GitHub no deja crear la regla (dice *Upgrade to GitHub Pro or make this repository public*).
+> Para hacer este paso, vuelve público el repo: **Settings** → **General** → abajo, **Change visibility** → **Public**.
+> No expones nada secreto: no hay llaves (OIDC), y el número de cuenta que aparece en los ARN no da acceso a nadie: el rol solo confía en TU repositorio.
+> En las empresas (GitHub Team o Enterprise) la regla funciona también en repos privados.
 
 ## PASO 11 · Al terminar: destruir EN ORDEN (¡importante!)
 
@@ -272,11 +300,14 @@ Primero **la tienda** (su estado está en el bucket) y **después** el bootstrap
 
 ```powershell
 cd terraform
-terraform init -backend-config=backend.hcl
+terraform init -backend-config="backend.hcl"
 terraform destroy          # yes · Destroy complete! Resources: 13 destroyed.
 
 cd ../bootstrap
-terraform destroy          # yes · Destroy complete! Resources: 13 destroyed.
+terraform destroy          # yes · Destroy complete! (11 a 13 recursos, según tu cuenta)
+
+# los logs de la Lambda los crea AWS solo (no Terraform): bórralos aparte
+aws logs delete-log-group --log-group-name /aws/lambda/tienda-cicd
 ```
 
 Si lo haces al revés, se borra el estado y Terraform ya no sabe qué destruir: tocaría borrar la tienda a mano en la consola.
@@ -297,7 +328,8 @@ El repositorio de GitHub puedes dejarlo: sin los roles, el pipeline ya no puede 
 
 | Mensaje | Qué hacer |
 |---|---|
-| `Not authorized to perform sts:AssumeRoleWithWebIdentity` (en Actions) | El repositorio quedó mal escrito o con otras mayúsculas. En `bootstrap`: `terraform apply -var="repo_github=TU-USUARIO/tienda-laura"`, `git add .`, commit, push (el `pipeline.yml` no cambia, pero los roles sí). Revisa también que la rama sea `main`. |
+| `Not authorized to perform sts:AssumeRoleWithWebIdentity` (en Actions) | El repositorio quedó mal escrito o con otras mayúsculas. En `bootstrap`: `terraform apply -var="repo_github=TU-USUARIO/tienda-laura"`, `git add .`, commit, push (el `pipeline.yml` no cambia, pero los roles sí). Revisa también que la rama sea `main`. Si bajaste el zip antes del 22 de octubre, bájalo otra vez: GitHub cambió el formato del pase (`repo:usuario@123/repo@456:…`) y el bootstrap nuevo acepta los dos. |
+| En la clase 14 volviste a correr el bootstrap y el pipeline perdió el back y el front | El bootstrap reescribe `.github/workflows/pipeline.yml` con el de la parte 1. Repite el `Copy-Item` del PASO 7, commit y push. |
 | `EntityAlreadyExists ... oidc-provider` (en el bootstrap) | Tu cuenta ya tiene el proveedor de GitHub: `terraform apply -var="crear_proveedor=false"`. |
 | `BucketAlreadyExists` o `BucketAlreadyOwnedByYou` (en el bootstrap) | Ya hiciste el bootstrap antes en esta cuenta y se perdió su estado. Borra el bucket `tienda-estado-…` en la consola (vacíalo primero) y repite. |
 | `AccessDenied ... CreateOpenIDConnectProvider` o `CreateRole` | Falta la política del PASO 0. |
@@ -307,6 +339,7 @@ El repositorio de GitHub puedes dejarlo: sin los roles, el pipeline ya no puede 
 | `AccessDenied` en el `terraform apply` del pipeline | El rol `tienda-cicd-apply` solo maneja recursos que empiezan por `tienda-cicd-`. Si cambiaste un nombre en `main.tf`, déjalo como estaba. |
 | La página dice *AccessDenied* en vez de "La infraestructura ya está lista" | El paso *Poner el aviso 🚧* no corrió: revisa que **1 · Infra** haya terminado en verde y recarga. |
 | `terraform fmt -check` ❌ en el plan | Quedó mal alineado un `=`. En tu PC: `cd terraform`, `terraform fmt`, commit y push a la misma rama. |
+| `Too many command line arguments` en `terraform init` | En PowerShell, `-backend-config` va con comillas: `terraform init -backend-config="backend.hcl"` (sin ellas, PowerShell lo parte en el punto). |
 | `Error acquiring the state lock` | Alguien (o el pipeline) está aplicando. Espera a que termine. Si un pipeline se canceló a la mitad y el candado quedó: `terraform force-unlock <ID>` con el ID del mensaje. |
 | `git` no se reconoce | Instala Git para Windows y reabre VS Code. |
 | `refusing to allow ... workflow ... without workflow scope` | Entraste con un token sin permiso `workflow`. Windows → **Administrador de credenciales** → Credenciales de Windows → borra `git:https://github.com` y vuelve a hacer `git push` (entra por el navegador). |

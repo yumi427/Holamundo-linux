@@ -153,6 +153,9 @@ jobs:
     name: 3 · Finalizar (probar en vivo)
     needs: [infra, back, front]   # solo si las tres piezas salieron bien
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .   # no baja el código: solo abre la tienda en vivo
     steps:
       - name: ¿La tienda abre?
         run: curl -fsS --retry 5 --retry-delay 10 --retry-all-errors "$${{ needs.infra.outputs.tienda }}" | grep -q '<title>'
