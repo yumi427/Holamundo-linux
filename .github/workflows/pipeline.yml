@@ -174,6 +174,9 @@ jobs:
     name: Revisar (pruebas + terraform plan)
     if: github.event_name == 'pull_request'   # solo en los pull request: no publica nada
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: "RED-02/tienda-laura-cicd"
     steps:
       - name: Bajar el código del repositorio
         uses: actions/checkout@v4
@@ -189,6 +192,7 @@ jobs:
           python -m unittest discover -s back -v
 
       - name: Probar el front
+        working-directory: "RED-02/tienda-laura-cicd"
         run: |
           node --check front/app.js
           grep -q 'config.js' front/index.html
@@ -207,14 +211,14 @@ jobs:
           terraform_wrapper: false
 
       - name: terraform init, fmt y validate (¿está bien escrito?)
-        working-directory: "./terraform"
+        working-directory: "RED-02/tienda-laura-cicd/terraform"
         run: |
           terraform init -input=false -backend-config=backend.hcl
           terraform fmt -check -diff
           terraform validate
 
       - name: terraform plan (¿qué cambiaría?)
-        working-directory: "./terraform"
+        working-directory: "RED-02/tienda-laura-cicd/terraform"
         run: |
           terraform plan -input=false -no-color | tee plan.txt
           {
