@@ -15,7 +15,7 @@ INSTANCIA = uuid.uuid4().hex[:6]  # nombre corto de esta instancia de la Lambda
 frio = True
 
 # Reglas del negocio: viven en el BACK, nunca en el front (allá cualquiera las cambia con F12)
-PRECIOS = {"camiseta": 59000, "gorra": 39000, "buzo": 119000}
+PRECIOS = {"camiseta": 5900, "gorra": 39000, "buzo": 119000}
 TALLAS = {"S", "M", "L", "XL"}
 
 
