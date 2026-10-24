@@ -122,6 +122,9 @@ jobs:
     name: 2 · Front (probar, empaquetar, publicar)
     needs: infra   # espera a que exista la infraestructura
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: "RED-02/tienda-laura-cicd"
     steps:
       - name: Bajar el código del repositorio
         uses: actions/checkout@v4
