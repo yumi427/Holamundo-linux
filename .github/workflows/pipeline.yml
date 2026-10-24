@@ -87,7 +87,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: "RED-02/tienda-laura-cicd/back"   # la carpeta del lab dentro del repositorio
+        working-directory: "RED-02/tienda-laura-cicd"
     steps:
       - name: Bajar el código del repositorio
         uses: actions/checkout@v4
