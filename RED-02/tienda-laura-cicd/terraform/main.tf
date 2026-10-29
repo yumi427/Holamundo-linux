@@ -12,6 +12,9 @@
 #  El estado vive en S3 (backend "s3"), no en ningún PC.
 #  Desde tu PC solo para mirar o, al final, para destruir:
 #    terraform init -backend-config="backend.hcl"   (con comillas: PowerShell parte el punto)
+#
+#  PARTE 3 · clase 15: los OJOS (logs, métricas, trazas, alarmas y tablero)
+#  están en observabilidad.tf; aquí solo cambia una cosa: la Lambda deja trazas (X-Ray).
 # =====================================================================
 
 terraform {
@@ -101,6 +104,9 @@ resource "aws_lambda_function" "back" {
   source_code_hash = data.archive_file.espera.output_base64sha256
   environment {
     variables = { TABLA = aws_dynamodb_table.pedidos.name }
+  }
+  tracing_config {
+    mode = "Active" # parte 3: cada pedido deja su traza en X-Ray
   }
   lifecycle {
     ignore_changes = [filename, source_code_hash] # el código es del pipeline: Terraform no lo pisa
