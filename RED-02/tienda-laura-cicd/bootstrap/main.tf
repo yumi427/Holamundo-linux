@@ -10,15 +10,18 @@
 #    2 · el proveedor OIDC de GitHub
 #    3 · el rol tienda-cicd-plan   → lo usa cada PULL REQUEST (solo mirar)
 #    4 · el rol tienda-cicd-apply  → lo usa cada push a MAIN (aplicar)
-#    5 · escribe ../terraform/backend.hcl y los dos pipelines:
-#        ../.github/workflows/pipeline.yml  → clase 13: solo la infraestructura
-#        ../parte2/pipeline.yml             → clase 14: infraestructura + aplicación
+#    5 · escribe ../terraform/backend.hcl y el pipeline completo:
+#        ../.github/workflows/pipeline.yml  → infraestructura + aplicación + los ojos
+#
+#  PARTE 3 · clase 15: el rol apply ahora también maneja los OJOS de la tienda
+#  (logs, alarmas, tablero, SNS). El pipeline NO puede darse esos permisos a sí
+#  mismo: por eso vuelves a correr este bootstrap desde tu PC (terraform apply).
 #
 #  Uso (terminal de VS Code, DENTRO de esta carpeta bootstrap):
 #    terraform init
 #    terraform apply      (te pregunta tu repositorio de GitHub · menos de 1 minuto)
 #  Su estado queda en ESTE PC (terraform.tfstate): no borres esta carpeta
-#  hasta el final de la parte 2.
+#  hasta el final del lab.
 # =====================================================================
 
 terraform {
@@ -197,6 +200,30 @@ resource "aws_iam_role_policy" "apply" {
       { Sid = "LaAPI", Effect = "Allow", Action = ["apigateway:*"], Resource = "arn:aws:apigateway:us-east-1::/*" },
       { Sid = "ElBucketDelFront", Effect = "Allow", Action = ["s3:*"], Resource = ["arn:aws:s3:::tienda-cicd-*", "arn:aws:s3:::tienda-cicd-*/*"] },
       { Sid = "CloudFront", Effect = "Allow", Action = ["cloudfront:*"], Resource = "*" },
+      # ---- parte 3 · los ojos de la tienda ----
+      {
+        Sid      = "LosLogsDeLaLambda" # el pipeline se asegura de que existan y les pone 7 días de vida
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogGroup", "logs:PutRetentionPolicy", "logs:ListTagsForResource", "logs:ListTagsLogGroup"]
+        Resource = ["arn:aws:logs:us-east-1:${local.cuenta}:log-group:/aws/lambda/tienda-cicd*"]
+      },
+      {
+        Sid      = "LasConsultasGuardadas" # Logs Insights
+        Effect   = "Allow"
+        Action   = ["logs:PutQueryDefinition", "logs:DescribeQueryDefinitions", "logs:DeleteQueryDefinition", "logs:DescribeLogGroups"]
+        Resource = "*"
+      },
+      {
+        Sid    = "LasAlarmasYElTablero"
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:PutMetricAlarm", "cloudwatch:DeleteAlarms", "cloudwatch:ListTagsForResource", "cloudwatch:TagResource", "cloudwatch:UntagResource",
+          "cloudwatch:PutDashboard", "cloudwatch:GetDashboard", "cloudwatch:DeleteDashboards"
+        ]
+        Resource = ["arn:aws:cloudwatch:us-east-1:${local.cuenta}:alarm:tienda-cicd-*", "arn:aws:cloudwatch::${local.cuenta}:dashboard/tienda-cicd-*"]
+      },
+      { Sid = "VerLasAlarmas", Effect = "Allow", Action = ["cloudwatch:DescribeAlarms"], Resource = "*" },
+      { Sid = "ElMegafono", Effect = "Allow", Action = ["sns:*"], Resource = "arn:aws:sns:us-east-1:${local.cuenta}:tienda-cicd-*" },
       {
         Sid    = "ElRolDeLaLambda" # solo ESE rol: el pipeline no puede darse más permisos a sí mismo
         Effect = "Allow"
@@ -232,20 +259,10 @@ resource "local_file" "backend" {
   content  = "# Lo escribió bootstrap: el bucket donde vive el estado de la tienda\nbucket = \"${aws_s3_bucket.estado.id}\"\n"
 }
 
-# los dos pipelines con TUS dos roles
-resource "local_file" "workflow" {                                            # clase 13: solo la infraestructura
+# el pipeline completo con TUS dos roles (infraestructura + aplicación + los ojos)
+resource "local_file" "workflow" {
   filename = "${path.module}/..${local.subir}/.github/workflows/pipeline.yml" # en la RAÍZ del repo
-  content = templatefile("${path.module}/pipeline-1-infra.yml.tpl", {
-    rol_plan  = aws_iam_role.plan.arn
-    rol_apply = aws_iam_role.apply.arn
-    carpeta   = local.carpeta
-    raiz      = local.raiz
-  })
-}
-
-resource "local_file" "workflow_app" { # clase 14: infraestructura + aplicación
-  filename = "${path.module}/../parte2/pipeline.yml"
-  content = templatefile("${path.module}/pipeline-2-app.yml.tpl", {
+  content = templatefile("${path.module}/pipeline.yml.tpl", {
     rol_plan  = aws_iam_role.plan.arn
     rol_apply = aws_iam_role.apply.arn
     carpeta   = local.carpeta
@@ -267,5 +284,5 @@ output "rol_apply" {
 }
 
 output "siguiente_paso" {
-  value = "Listos terraform/backend.hcl, parte2/pipeline.yml y ${local.carpeta == "" ? "" : "(en la raíz del repo) "}.github/workflows/pipeline.yml → súbelo a https://github.com/${var.repo_github} (PASO 3)"
+  value = "Listos terraform/backend.hcl y ${local.carpeta == "" ? "" : "(en la raíz del repo) "}.github/workflows/pipeline.yml → súbelos a https://github.com/${var.repo_github} por pull request"
 }
