@@ -17,6 +17,7 @@
       <a href="#coleccion">Colección</a>
       <a href="#pedido">Comprar</a>
       <a href="#pedidos">Pedidos</a>
+      <a href="#observar">Observar</a>
     </nav>
     <span class="sello">⚡ 100 % serverless</span>
   </header>
@@ -25,7 +26,7 @@
   <section class="portada">
     <div class="portada-texto">
       <p class="antetitulo">Colección Medellín · otoño 2026</p>
-      <h1>Ropa que <em>llega volando a Medellín</em>.</h1>
+      <h1>Ropa que <em>llega volando</em>.</h1>
       <p class="bajada">Camisetas, gorras y buzos hechos en Colombia. Esta tienda no tiene ningún servidor prendido: cada pedido despierta una función en la nube, se guarda y se vuelve a dormir.</p>
       <div class="portada-botones">
         <a class="boton" href="#pedido">Hacer un pedido</a>
@@ -114,9 +115,32 @@
     </div>
   </section>
 
+  <!-- ===================== PARTE 3: los ojos de la tienda ===================== -->
+  <section id="observar" class="seccion">
+    <div class="seccion-titulo">
+      <h2>🔭 Pruebas de observabilidad</h2>
+      <p>Cada prueba hace un pedido especial, espera su <b>traza</b> en X-Ray y revisa que cuente lo que pasó.</p>
+    </div>
+    <div class="herramientas">
+      <button class="boton" id="correr-todas" type="button">▶ Correr las 4 pruebas</button>
+      <button class="boton boton-claro" id="ver-alarmas" type="button">🚨 ¿Cómo están las alarmas?</button>
+    </div>
+    <p class="alarmas" id="alarmas" role="status">Las alarmas aparecen aquí cuando corras una prueba.</p>
+    <div class="pruebas" id="pruebas"></div>
+    <div class="tarjeta traza" id="traza" hidden>
+      <div class="traza-titulo">
+        <h2 id="traza-nombre">La traza</h2>
+        <a class="boton boton-claro" id="traza-consola" target="_blank" rel="noopener">Abrir en la consola de AWS ↗</a>
+      </div>
+      <p class="traza-id" id="traza-id"></p>
+      <div class="cascada" id="cascada"></div>
+      <p class="traza-pista">En <b>Logs Insights</b>, esta misma traza está en los logs: <code id="traza-consulta"></code></p>
+    </div>
+  </section>
+
   <footer class="pie">
     <p><b>laura.</b> · página en <b>S3</b> entregada por <b>CloudFront</b> · pedidos por <b>API Gateway → Lambda → DynamoDB</b></p>
-    <p class="pie-curso">Esumer · Cloud Computing, Redes y Ciberseguridad · laboratorio CI/CD con GitHub Actions</p>
+    <p class="pie-curso">Esumer · Cloud Computing, Redes y Ciberseguridad · laboratorio CI/CD con GitHub Actions · parte 3: los ojos (CloudWatch + X-Ray)</p>
   </footer>
 
   <!-- dibujos de las prendas -->

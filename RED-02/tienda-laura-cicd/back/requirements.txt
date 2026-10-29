@@ -1,0 +1,4 @@
+# Lo que el pipeline empaqueta JUNTO a app.py (boto3 ya viene dentro de Lambda)
+# aws-xray-sdk: las trazas por tramos (validar → DynamoDB → cobrar)
+aws-xray-sdk==2.15.0
+wrapt==2.5.1
